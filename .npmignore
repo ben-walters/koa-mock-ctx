@@ -1,0 +1,17 @@
+# Source files (consumers only need the compiled dist)
+src/
+test/
+
+# Config files
+jest.config.js
+tsconfig.json
+.editorconfig
+.orettierrc
+eslint.config.js
+tsconfig.json
+
+# Github Actions
+.github/workflows/
+
+# Dependencies
+node_modules/

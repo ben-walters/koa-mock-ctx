@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "useUnknownInCatchVariables": false,
+    "module": "CommonJS",
+    "target": "es2019",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "removeComments": true,
+    "strict": true,
+    "pretty": true,
+    "baseUrl": ".",
+    "paths": {
+      "*": ["node_modules/*"]
+    },
+    "declaration": true,
+    "declarationMap": true,
+    "skipLibCheck": true,
+    "typeRoots": ["./src/types", "./node_modules/@types/"]
+  },
+  "exclude": [
+    "node_modules",
+    "./node_modules",
+    "./node_modules/*",
+    "./node_modules/@types/node/index.d.ts"
+  ],
+  "include": [
+    "src/**/*.ts",
+    "src/tasks/expireStaleInvites",
+    "src/tasks/expireStaleInvites"
+  ]
+}
