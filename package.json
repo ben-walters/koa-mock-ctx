@@ -23,8 +23,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "jest",
-    "prepublishOnly": "npm run build"
+    "test": "jest"
   },
   "dependencies": {
     "http-assert": "^1.5.0",

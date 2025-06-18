@@ -1,6 +1,6 @@
 # Koa Middleware Test Utils
 
-A lightweight, zero-dependency utility for testing Koa middleware in complete isolation. This toolkit allows you to craft precise, fast, and reliable unit tests for your middleware without needing to run a live server.
+A lightweight utility for testing Koa middleware in complete isolation. This toolkit allows you to craft precise, fast, and reliable unit tests for your middleware without needing to run a live server.
 
 It provides a powerful factory for creating mock Koa `Context` objects, integrates seamlessly with Jest, and includes a standard `compose` function to test middleware chains.
 
