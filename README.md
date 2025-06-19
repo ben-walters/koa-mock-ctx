@@ -14,6 +14,7 @@ It provides a single, powerful function to create mock Koa `Context` objects, in
 - **Unified API**: A single function for both simple contexts and reusable factories.
 - **Type-Safe**: Written in TypeScript to provide excellent autocompletion.
 - **Realistic Mocking**: Accurately mocks Koa's context, request, and response.
+- **File Uploads**: Easily simulate `multipart/form-data` file uploads.
 - **Jest Integration**: The mocked `next` function is a `jest.Mock` instance.
 - **Zero Dependencies**: Other than Koa itself.
 
@@ -100,6 +101,68 @@ describe('someAdminMiddleware', () => {
 });
 ```
 
+## Mocking File Uploads
+
+You can simulate `multipart/form-data` file uploads by providing a `files` object in the options. This populates `ctx.request.files` with a structure that mimics popular body-parsing middleware like `koa-body`.
+
+**Middleware (`src/middleware/avatar-upload.ts`):**
+
+```typescript
+import * as Koa from 'koa';
+
+// The MockKoaRequest type can be imported from the library for type safety
+import { MockKoaRequest } from 'koa-mock-ctx';
+
+export const handleAvatarUpload = async (ctx: Koa.Context) => {
+  const { files } = ctx.request as MockKoaRequest;
+  const avatar = files.avatar;
+
+  if (!avatar || Array.isArray(avatar)) {
+    ctx.throw(400, 'An avatar file is required.');
+  }
+
+  // In a real app, you would process the file at `avatar.filepath`
+  ctx.body = {
+    message: 'Upload successful',
+    filename: avatar.originalFilename,
+    size: avatar.size,
+  };
+};
+```
+
+**Test (`__tests__/avatar-upload.test.ts`):**
+
+```typescript
+import { handleAvatarUpload } from '../src/middleware/avatar-upload';
+import { mockContext } from 'koa-mock-ctx';
+
+describe('handleAvatarUpload', () => {
+  it('should process a valid file upload', async () => {
+    const [ctx, next] = mockContext({
+      // Set the content-type to trigger the file parser simulation
+      headers: { 'Content-Type': 'multipart/form-data' },
+      files: {
+        avatar: {
+          filepath: '/tmp/temp-file-123',
+          originalFilename: 'my-photo.png',
+          mimetype: 'image/png',
+          size: 12345,
+        },
+      },
+    });
+
+    await handleAvatarUpload(ctx);
+
+    expect(ctx.status).toBe(200);
+    expect(ctx.body).toEqual({
+      message: 'Upload successful',
+      filename: 'my-photo.png',
+      size: 12345,
+    });
+  });
+});
+```
+
 ## API Reference
 
 ### `mockContext(options?: MockContextOptions)`
@@ -118,16 +181,17 @@ A standard Koa middleware composer. It takes an array of middleware and returns 
 
 The options object for `mockContext` or `mockContext.factory`.
 
-| Property  | Type                                 | Description                                                          | Default      |
-| :-------- | :----------------------------------- | :------------------------------------------------------------------- | :----------- |
-| `state`   | `Record<string, any>`                | The initial `ctx.state` object.                                      | `{}`         |
-| `headers` | `Record<string, string \| string[]>` | **Request headers**. Used to populate `ctx.headers` and `ctx.get()`. | `{}`         |
-| `method`  | `string`                             | The request method.                                                  | `'GET'`      |
-| `url`     | `string`                             | The request URL.                                                     | `'/'`        |
-| `body`    | `unknown`                            | The initial **response body**.                                       | `null`       |
-| `status`  | `number`                             | The initial **response status**.                                     | `200`        |
-| `cookies` | `Record<string, string>`             | Initial cookies available via `ctx.cookies.get()`.                   | `{}`         |
-| `host`    | `string`                             | The request host.                                                    | `'test.com'` |
+| Property  | Type                                     | Description                                                                                                                            | Default      |
+| :-------- | :--------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------- | :----------- |
+| `state`   | `Record<string, any>`                    | The initial `ctx.state` object.                                                                                                        | `{}`         |
+| `headers` | `Record<string, string \| string[]>`     | **Request headers**. Used to populate `ctx.headers` and `ctx.get()`.                                                                   | `{}`         |
+| `method`  | `string`                                 | The request method.                                                                                                                    | `'GET'`      |
+| `url`     | `string`                                 | The request URL.                                                                                                                       | `'/'`        |
+| `body`    | `unknown`                                | The initial **request body**. Populates `ctx.request.body`.                                                                            | `undefined`  |
+| `files`   | `Record<string, MockFile \| MockFile[]>` | Mock files for `multipart/form-data` requests. Populates `ctx.request.files`. Requires `Content-Type` header to be set to `multipart`. | `undefined`  |
+| `status`  | `number`                                 | The initial **response status**.                                                                                                       | `200`        |
+| `cookies` | `Record<string, string>`                 | Initial cookies available via `ctx.cookies.get()`.                                                                                     | `{}`         |
+| `host`    | `string`                                 | The request host.                                                                                                                      | `'test.com'` |
 
 ### The Mock Context Object (`MockKoaContext`)
 
@@ -135,7 +199,7 @@ The returned `ctx` object realistically mimics the real Koa `Context`, including
 
 For convenience, it also includes three special helper methods to make your tests cleaner:
 
-- `setBody(body: unknown)`: A shortcut for `ctx.body = body;`.
+- `setBody(body: unknown)`: A shortcut for `ctx.request.body = body;`.
 - `setHeaders(headers: Record<string, string | string[]>)`: Sets multiple **request** headers at once.
 - `setCookies(cookies: Record<string, string>)`: Sets multiple cookies at once.
 
@@ -144,19 +208,19 @@ For convenience, it also includes three special helper methods to make your test
 ```typescript
 import { mockContext } from 'koa-mock-ctx';
 
-it('should use the helper methods', () => {
+it('should use the helper methods', async () => {
   const [ctx, next] = mockContext();
 
   ctx.setHeaders({ 'x-api-key': '12345' });
   ctx.setCookies({ session: 'abc-xyz' });
-  ctx.setBody({ message: 'Success' });
+  ctx.setBody({ name: 'test-user' }); // Sets the REQUEST body
 
   await yourMiddleware(ctx, next);
 
   expect(next).toHaveBeenCalled();
   expect(ctx.get('x-api-key')).toBe('12345');
   expect(ctx.cookies.get('session')).toBe('abc-xyz');
-  expect(ctx.body).toEqual({ message: 'Success' });
+  expect(ctx.request.body).toEqual({ name: 'test-user' });
 });
 ```
 
