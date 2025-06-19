@@ -2,10 +2,8 @@
 
 [![NPM Version](https://img.shields.io/npm/v/koa-mock-ctx.svg)](https://www.npmjs.com/package/koa-mock-ctx)
 [![CI](https://github.com/ben-walters/koa-mock-ctx/actions/workflows/ci.yml/badge.svg)](https://github.com/ben-walters/koa-mock-ctx/actions)
-[![codecov](https://codecov.io/gh/ben-walters/koa-mock-ctx/graph/badge.svg?token=YOUR_TOKEN_HERE)](https://codecov.io/gh/ben-walters/koa-mock-ctx)
+[![codecov](https://codecov.io/gh/ben-walters/koa-mock-ctx/graph/badge.svg)](https://codecov.io/gh/ben-walters/koa-mock-ctx)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-A lightweight utility for testing Koa middleware in complete isolation...
 
 A lightweight utility for testing Koa middleware in complete isolation. This toolkit allows you to craft precise, fast, and reliable unit tests for your middleware without needing to run a live server.
 
@@ -86,7 +84,6 @@ import { someAdminMiddleware } from '../src/middleware/admin';
 import { mockContext } from 'koa-mock-ctx';
 
 // Arrange: Create a factory for an authenticated admin user.
-// This can be shared across all tests in this file.
 const adminContextFactory = mockContext.factory({
   state: {
     user: { id: 'admin-1', role: 'admin' },
@@ -95,22 +92,10 @@ const adminContextFactory = mockContext.factory({
 
 describe('someAdminMiddleware', () => {
   it('should allow access for an admin user', async () => {
-    // Act: Get a pre-configured context from the factory
     const [ctx, next] = adminContextFactory();
-
     await someAdminMiddleware(ctx, next);
-
     expect(ctx.status).not.toBe(403);
     expect(next).toHaveBeenCalled();
-  });
-
-  it('should set a special header when the method is POST', async () => {
-    // Act: Use the factory but override the method for this specific test
-    const [ctx, next] = adminContextFactory({ method: 'POST' });
-
-    await someAdminMiddleware(ctx, next);
-
-    expect(ctx.response.headers['x-admin-action']).toBe('true');
   });
 });
 ```
@@ -127,29 +112,7 @@ Creates a **factory function** for generating mock contexts with a shared base c
 
 ### `compose(middleware: Koa.Middleware[])`
 
-A standard Koa middleware composer. It takes an array of middleware and returns a single function that will execute them in sequence. This is essential for testing the interaction between multiple middleware.
-
-**Example:**
-
-```typescript
-import { mockContext, compose } from 'koa-mock-ctx';
-// import your middleware...
-
-it('should process the request through the full chain', async () => {
-  const [ctx, finalNext] = mockContext();
-  const middlewareChain = compose([
-    authMiddleware,
-    fetchDataMiddleware,
-    loggerMiddleware,
-  ]);
-
-  await middlewareChain(ctx, finalNext);
-
-  expect(ctx.state.data).toBeDefined();
-  expect(ctx.body).toEqual({ result: 'some data' });
-  expect(finalNext).toHaveBeenCalledTimes(1);
-});
-```
+A standard Koa middleware composer. It takes an array of middleware and returns a single function that will execute them in sequence.
 
 ### `MockContextOptions`
 
@@ -166,10 +129,45 @@ The options object for `mockContext` or `mockContext.factory`.
 | `cookies` | `Record<string, string>`             | Initial cookies available via `ctx.cookies.get()`.                   | `{}`         |
 | `host`    | `string`                             | The request host.                                                    | `'test.com'` |
 
-### `MockKoaContext` and `MockKoaNext`
+### The Mock Context Object (`MockKoaContext`)
 
-- The returned `ctx` object is a `MockKoaContext`, which realistically mimics the real Koa `Context`.
-- The returned `next` function is a `jest.Mock` instance (`jest.fn()`), allowing you to make assertions like `expect(next).toHaveBeenCalled()`.
+The returned `ctx` object realistically mimics the real Koa `Context`, including properties like `ctx.body`, `ctx.status`, `ctx.get()`, and `ctx.throw()`.
+
+For convenience, it also includes three special helper methods to make your tests cleaner:
+
+- `setBody(body: unknown)`: A shortcut for `ctx.body = body;`.
+- `setHeaders(headers: Record<string, string | string[]>)`: Sets multiple **request** headers at once.
+- `setCookies(cookies: Record<string, string>)`: Sets multiple cookies at once.
+
+**Example:**
+
+```typescript
+import { mockContext } from 'koa-mock-ctx';
+
+it('should use the helper methods', () => {
+  const [ctx, next] = mockContext();
+
+  ctx.setHeaders({ 'x-api-key': '12345' });
+  ctx.setCookies({ session: 'abc-xyz' });
+  ctx.setBody({ message: 'Success' });
+
+  await yourMiddleware(ctx, next);
+
+  expect(next).toHaveBeenCalled();
+  expect(ctx.get('x-api-key')).toBe('12345');
+  expect(ctx.cookies.get('session')).toBe('abc-xyz');
+  expect(ctx.body).toEqual({ message: 'Success' });
+});
+```
+
+### The Mock Next Function (`MockKoaNext`)
+
+The returned `next` function is a `jest.Mock` instance (`jest.fn()`). This allows you to make assertions about whether the middleware chain continued.
+
+```typescript
+expect(next).toHaveBeenCalled();
+expect(next).toHaveBeenCalledTimes(1);
+```
 
 ### Included Helpers
 
