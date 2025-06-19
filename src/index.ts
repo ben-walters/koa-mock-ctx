@@ -3,8 +3,7 @@ import httpAssert from 'http-assert';
 import HttpErrors from 'http-errors';
 import * as Koa from 'koa';
 
-export { httpAssert, HttpErrors };
-
+// ... (all interfaces remain the same) ...
 export interface UploadedFile {
   size: number;
   filepath: string;
@@ -52,6 +51,7 @@ export interface MockKoaContext extends Koa.Context {
 
 export type MockKoaNext = jest.Mock<() => Promise<any>>;
 
+// ... (helper functions remain the same) ...
 function normalizeHeaders(headers: Record<string, any> = {}) {
   const result: Record<string, any> = {};
   for (const key in headers) {
@@ -107,11 +107,11 @@ export function compose(middleware: Koa.Middleware[]) {
   };
 }
 
-function createMockGenerator(baseOptions: MockContextOptions = {}) {
-  return (
-    overrideOptions: MockContextOptions = {}
-  ): [MockKoaContext, MockKoaNext] => {
-    const mergedForCloning = {
+function createMockGenerator<T extends MockKoaContext = MockKoaContext>(
+  baseOptions: MockContextOptions = {}
+) {
+  return (overrideOptions: MockContextOptions = {}): [T, MockKoaNext] => {
+    const mergedForCloning: MockContextOptions = {
       ...baseOptions,
       ...overrideOptions,
       state: { ...baseOptions.state, ...overrideOptions.state },
@@ -122,16 +122,38 @@ function createMockGenerator(baseOptions: MockContextOptions = {}) {
         ...overrideOptions.requestHeaders,
       },
       cookies: { ...baseOptions.cookies, ...overrideOptions.cookies },
-      files: { ...baseOptions.files, ...overrideOptions.files },
     };
 
+    if (baseOptions.files || overrideOptions.files) {
+      mergedForCloning.files = {
+        ...baseOptions.files,
+        ...overrideOptions.files,
+      };
+    }
+
     const { app, ...restOfOptions } = mergedForCloning;
-
     const options = structuredClone(restOfOptions);
+    const normalizedHeaders = normalizeHeaders(options.headers);
 
-    const processedFiles = options.files
-      ? processMockFiles(options.files)
-      : undefined;
+    let processedFiles:
+      | Record<string, UploadedFile | UploadedFile[]>
+      | undefined = undefined;
+
+    // --- NEW, CORRECTED LOGIC ---
+    // If the user provides a `files` object, it's the primary signal.
+    if (options.files) {
+      // Always process the files if they exist.
+      processedFiles = processMockFiles(options.files);
+      // As a convenience, add the multipart header if it's not already there.
+      if (!normalizedHeaders['content-type']) {
+        normalizedHeaders['content-type'] = 'multipart/form-data';
+      }
+    } else if (
+      (normalizedHeaders['content-type'] || '').includes('multipart/form-data')
+    ) {
+      // If no files are provided but the header is present, create an empty object.
+      processedFiles = {};
+    }
 
     const ctx = {} as MockKoaContext;
     const request = {
@@ -174,7 +196,7 @@ function createMockGenerator(baseOptions: MockContextOptions = {}) {
       ctx,
       app: finalApp,
       response,
-      headers: normalizeHeaders(options.headers),
+      headers: normalizedHeaders, // Use the potentially modified headers
       method: options.method ?? 'GET',
       url: options.url ?? '/',
       host: options.host ?? 'test.com',
@@ -241,17 +263,22 @@ function createMockGenerator(baseOptions: MockContextOptions = {}) {
     });
 
     const next: MockKoaNext = jest.fn();
-    return [ctx, next];
+    return [ctx as T, next];
   };
 }
 
 type MockContextFunction = {
-  (options?: MockContextOptions): [MockKoaContext, MockKoaNext];
-  factory: (
+  <T extends MockKoaContext = MockKoaContext>(options?: MockContextOptions): [
+    T,
+    MockKoaNext
+  ];
+  factory: <T extends MockKoaContext = MockKoaContext>(
     baseOptions?: MockContextOptions
-  ) => (overrideOptions?: MockContextOptions) => [MockKoaContext, MockKoaNext];
+  ) => (overrideOptions?: MockContextOptions) => [T, MockKoaNext];
 };
 
-export const mockContext = createMockGenerator({}) as MockContextFunction;
+export const mockContext = createMockGenerator() as MockContextFunction;
 
-mockContext.factory = (baseOptions) => createMockGenerator(baseOptions);
+mockContext.factory = <T extends MockKoaContext = MockKoaContext>(
+  baseOptions?: MockContextOptions
+) => createMockGenerator<T>(baseOptions);

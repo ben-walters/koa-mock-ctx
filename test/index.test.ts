@@ -234,7 +234,7 @@ describe('Koa Mock Context Utility', () => {
 
     it('should return undefined for files if none are provided', () => {
       const [ctx] = mockContext();
-      expect(ctx.request.files).toEqual({});
+      expect(ctx.request.files).toEqual(undefined);
     });
 
     it('should merge files when using a factory', () => {
