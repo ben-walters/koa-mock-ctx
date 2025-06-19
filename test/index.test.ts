@@ -1,6 +1,5 @@
 import * as Koa from 'koa';
-
-import { compose, mockContext, mockCtx, MockKoaContext } from '../src';
+import { compose, mockContext, MockKoaContext } from '../src';
 
 describe('Koa Mock Context Utility', () => {
   describe('Factory and Instantiation', () => {
@@ -10,14 +9,13 @@ describe('Koa Mock Context Utility', () => {
       expect(ctx.status).toBe(200);
       expect(ctx.body).toBeNull();
       expect(ctx.state).toEqual({});
-
       expect(ctx.method).toBe('GET');
       expect(ctx.url).toBe('/');
       expect(next).not.toHaveBeenCalled();
     });
 
-    it('should "bake" a base context and use its properties', () => {
-      const baseContextFactory = mockCtx({
+    it('should "bake" a base context using the factory', () => {
+      const baseContextFactory = mockContext.factory({
         state: { tenantId: 'tenant-123' },
         headers: { 'x-request-id': 'abc-123' },
       });
@@ -29,7 +27,7 @@ describe('Koa Mock Context Utility', () => {
     });
 
     it('should allow overriding baked properties for a single test', () => {
-      const baseContextFactory = mockCtx({
+      const baseContextFactory = mockContext.factory({
         state: { tenantId: 'tenant-123', user: null },
         headers: { 'x-request-id': 'abc-123' },
       });
@@ -40,18 +38,20 @@ describe('Koa Mock Context Utility', () => {
       });
 
       expect(ctx.state.user).toEqual({ id: 1 });
-
       expect(ctx.method).toBe('POST');
+
       expect(ctx.state.tenantId).toBe('tenant-123');
       expect(ctx.get('x-request-id')).toBe('abc-123');
     });
 
     it('should ensure contexts are isolated from each other', () => {
-      const factory = mockCtx({ state: { count: 0 } });
+      const factory = mockContext.factory({ state: { count: 0 } });
 
       const [ctx1] = factory();
       const [ctx2] = factory();
+
       ctx1.state.count = 100;
+
       expect(ctx1.state.count).toBe(100);
       expect(ctx2.state.count).toBe(0);
     });
@@ -174,6 +174,169 @@ describe('Koa Mock Context Utility', () => {
       const assertion = () => ctx.assert(user, 404, 'User not found');
       expect(assertion).toThrow('User not found');
       expect(assertion).toThrow(expect.objectContaining({ status: 404 }));
+    });
+  });
+
+  describe('Context Helper Methods', () => {
+    it('should set the body using the setBody helper', () => {
+      const [ctx] = mockContext();
+      ctx.setBody({ success: true });
+      expect(ctx.body).toEqual({ success: true });
+    });
+
+    it('should set request headers using the setHeaders helper', () => {
+      const [ctx] = mockContext();
+      ctx.setHeaders({ 'x-api-key': '12345' });
+      expect(ctx.get('x-api-key')).toBe('12345');
+    });
+
+    it('should set cookies using the setCookies helper', () => {
+      const [ctx] = mockContext();
+      ctx.setCookies({ theme: 'dark' });
+      expect(ctx.cookies.get('theme')).toBe('dark');
+    });
+  });
+
+  describe('Context Property Setters', () => {
+    it('should allow directly setting ctx.method', () => {
+      const [ctx] = mockContext();
+      ctx.method = 'PUT';
+      expect(ctx.method).toBe('PUT');
+    });
+
+    it('should allow directly setting ctx.url', () => {
+      const [ctx] = mockContext();
+      ctx.url = '/users/123';
+      expect(ctx.url).toBe('/users/123');
+    });
+
+    it('should allow directly setting ctx.message', () => {
+      const [ctx] = mockContext();
+      ctx.message = 'Payment Required';
+      expect(ctx.message).toBe('Payment Required');
+    });
+
+    it('should set multiple response headers when an object is passed to ctx.set', () => {
+      const [ctx] = mockContext();
+      ctx.set({
+        'X-RateLimit-Limit': '100',
+        'X-RateLimit-Remaining': '99',
+      });
+      expect(ctx.response.headers['x-ratelimit-limit']).toBe('100');
+      expect(ctx.response.headers['x-ratelimit-remaining']).toBe('99');
+    });
+  });
+
+  describe('compose function error handling', () => {
+    it('should reject if next() is called multiple times', async () => {
+      const [ctx, next] = mockContext();
+      const middleware = compose([
+        async (ctx, next) => {
+          await next();
+          await next();
+        },
+      ]);
+
+      await expect(middleware(ctx, next)).rejects.toThrow(
+        'next() called multiple times'
+      );
+    });
+
+    it('should reject if a middleware throws a synchronous error', async () => {
+      const [ctx, next] = mockContext();
+      const middleware = compose([
+        () => {
+          throw new Error('Synchronous error!');
+        },
+      ]);
+
+      await expect(middleware(ctx, next)).rejects.toThrow('Synchronous error!');
+    });
+  });
+
+  describe('Default app.onerror', () => {
+    let consoleErrorSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      consoleErrorSpy = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should trigger the default app.onerror when an error is thrown', () => {
+      const [ctx] = mockContext();
+      const testError = new Error('Test app error');
+
+      ctx.app.onerror?.(testError);
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Mocked app.onerror:',
+        testError
+      );
+    });
+  });
+
+  it('should correctly alias ctx.header and ctx.headers to request.headers', () => {
+    const testHeaders = {
+      'x-custom-1': 'value1',
+      'x-custom-2': 'value2',
+    };
+    const [ctx] = mockContext({ headers: testHeaders });
+
+    expect(ctx.header).toEqual(testHeaders);
+    expect(ctx.headers).toEqual(testHeaders);
+
+    expect(ctx.header).toBe(ctx.request.headers);
+    expect(ctx.headers).toBe(ctx.request.headers);
+  });
+
+  describe('Branch Coverage Edge Cases', () => {
+    it('should use the provided app, state, and cookies objects instead of defaults', () => {
+      const mockApp = {
+        emit: jest.fn(),
+        env: 'test',
+      };
+      const mockInitialState = { initial: true };
+      const mockInitialCookies = { 'pre-set': 'true' };
+
+      const [ctx] = mockContext({
+        app: mockApp,
+        state: mockInitialState,
+        cookies: mockInitialCookies,
+      });
+
+      expect(ctx.app).toBe(mockApp);
+      expect(ctx.state).toEqual(mockInitialState);
+      expect(ctx.cookies.get('pre-set')).toBe('true');
+    });
+
+    it('should correctly join a header value that is an array of strings', () => {
+      const [ctx] = mockContext({
+        headers: {
+          'Accept-Encoding': ['gzip', 'deflate', 'br'],
+        },
+      });
+
+      expect(ctx.get('Accept-Encoding')).toBe('gzip,deflate,br');
+    });
+
+    it('should resolve successfully when compose is called without a final next function', async () => {
+      let middlewareRan = false;
+      const middleware = compose([
+        async (ctx, next) => {
+          middlewareRan = true;
+          await next();
+        },
+      ]);
+
+      const [ctx] = mockContext();
+
+      await expect(middleware(ctx)).resolves.toBeUndefined();
+      expect(middlewareRan).toBe(true);
     });
   });
 });

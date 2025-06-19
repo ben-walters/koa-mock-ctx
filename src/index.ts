@@ -30,19 +30,6 @@ export interface MockKoaContext extends Koa.Context {
 
 export type MockKoaNext = jest.Mock<() => Promise<any>>;
 
-function deepClone<T>(obj: T): T {
-  if (obj === null || typeof obj !== 'object') return obj;
-  if (obj instanceof Date) return new Date(obj.getTime()) as any;
-  if (Array.isArray(obj)) return obj.map((item) => deepClone(item)) as any;
-  const cloned = {} as T;
-  for (const key in obj) {
-    if (Object.prototype.hasOwnProperty.call(obj, key)) {
-      cloned[key] = deepClone(obj[key]);
-    }
-  }
-  return cloned;
-}
-
 function normalizeHeaders(headers: Record<string, any> = {}) {
   const result: Record<string, any> = {};
   for (const key in headers) {
@@ -64,8 +51,7 @@ export function compose(middleware: Koa.Middleware[]) {
         return next ? next() : Promise.resolve();
       }
       try {
-        const nextDispatch = () => dispatch(i + 1);
-        return Promise.resolve(fn(context, nextDispatch));
+        return Promise.resolve(fn(context, () => dispatch(i + 1)));
       } catch (err) {
         return Promise.reject(err);
       }
@@ -74,52 +60,55 @@ export function compose(middleware: Koa.Middleware[]) {
   };
 }
 
-export function mockCtx(baseOptions: MockContextOptions = {}) {
+function createMockGenerator(baseOptions: MockContextOptions = {}) {
   return (
     overrideOptions: MockContextOptions = {}
   ): [MockKoaContext, MockKoaNext] => {
-    const mergedOptions: MockContextOptions = {
+    const mergedForCloning = {
       ...baseOptions,
       ...overrideOptions,
       state: { ...baseOptions.state, ...overrideOptions.state },
-      headers: { ...baseOptions.headers, ...overrideOptions.headers },
-      requestHeaders: {
+      headers: {
+        ...baseOptions.headers,
         ...baseOptions.requestHeaders,
+        ...overrideOptions.headers,
         ...overrideOptions.requestHeaders,
       },
       cookies: { ...baseOptions.cookies, ...overrideOptions.cookies },
     };
-    const options = deepClone(mergedOptions);
+
+    const { app, ...restOfOptions } = mergedForCloning;
+
+    const options = structuredClone(restOfOptions);
 
     const ctx = {} as MockKoaContext;
     const request = {} as Koa.Request;
     const response = {} as Koa.Response;
 
-    const app = options.app ?? {
+    // Use the separated `app` reference, or the default if none was provided.
+    const finalApp = app ?? {
       emit: jest.fn(),
       onerror: (err: Error) => console.error('Mocked app.onerror:', err),
     };
     const state = options.state ?? {};
     const cookies = options.cookies ?? {};
 
-    const finalRequestHeaders = normalizeHeaders({
-      ...options.headers,
-      ...options.requestHeaders,
-    });
-
     Object.assign(response, {
       ctx,
-      app,
+      app: finalApp,
       request,
+      // ... rest of the function
       status: options.status ?? 200,
       body: options.body ?? null,
       message: options.message ?? 'OK',
       headers: {} as Record<string, string | string[]>,
-      set(field: string | { [key: string]: any }, val: any) {
+      set(field: string | { [key: string]: any }, val?: any) {
         if (typeof field === 'string') {
           this.headers[field.toLowerCase()] = val;
         } else {
-          for (const key in field) this.headers[key.toLowerCase()] = field[key];
+          for (const key in field) {
+            this.headers[key.toLowerCase()] = field[key];
+          }
         }
       },
       redirect(url: string) {
@@ -130,9 +119,9 @@ export function mockCtx(baseOptions: MockContextOptions = {}) {
 
     Object.assign(request, {
       ctx,
-      app,
+      app: finalApp,
       response,
-      headers: finalRequestHeaders,
+      headers: normalizeHeaders(options.headers),
       method: options.method ?? 'GET',
       url: options.url ?? '/',
       host: options.host ?? 'test.com',
@@ -140,12 +129,8 @@ export function mockCtx(baseOptions: MockContextOptions = {}) {
       protocol: options.protocol ?? 'http',
       secure: options.protocol === 'https',
       get(field: string): string {
-        const lowerField = field.toLowerCase();
-        const headerValue = this.headers[lowerField];
-        return (
-          (Array.isArray(headerValue) ? headerValue.join(',') : headerValue) ??
-          ''
-        );
+        const headerValue = this.headers[field.toLowerCase()];
+        return Array.isArray(headerValue) ? headerValue.join(',') : headerValue;
       },
     });
 
@@ -153,7 +138,7 @@ export function mockCtx(baseOptions: MockContextOptions = {}) {
       ...options,
       request,
       response,
-      app,
+      app: finalApp,
       state,
       cookies: {
         get: (name: string) => cookies[name],
@@ -163,12 +148,13 @@ export function mockCtx(baseOptions: MockContextOptions = {}) {
       throw: (...args: any[]) => {
         throw HttpErrors(...args);
       },
-
       setBody(body: unknown) {
         this.body = body;
       },
       setHeaders(headers: Record<string, string | string[]>) {
-        this.headers = headers;
+        for (const key in headers) {
+          this.request.headers[key.toLowerCase()] = headers[key];
+        }
       },
       setCookies(newCookies: Record<string, string>) {
         Object.assign(cookies, newCookies);
@@ -184,7 +170,6 @@ export function mockCtx(baseOptions: MockContextOptions = {}) {
       },
       url: { get: () => request.url, set: (val) => (request.url = val) },
       get: { value: request.get.bind(request) },
-
       body: { get: () => response.body, set: (val) => (response.body = val) },
       status: {
         get: () => response.status,
@@ -203,4 +188,13 @@ export function mockCtx(baseOptions: MockContextOptions = {}) {
   };
 }
 
-export const mockContext = mockCtx();
+type MockContextFunction = {
+  (options?: MockContextOptions): [MockKoaContext, MockKoaNext];
+  factory: (
+    baseOptions?: MockContextOptions
+  ) => (overrideOptions?: MockContextOptions) => [MockKoaContext, MockKoaNext];
+};
+
+export const mockContext = createMockGenerator({}) as MockContextFunction;
+
+mockContext.factory = (baseOptions) => createMockGenerator(baseOptions);

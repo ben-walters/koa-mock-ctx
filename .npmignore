@@ -1,6 +1,9 @@
-# Source files (consumers only need the compiled dist)
+# Source files
 src/
 test/
+
+# Coverage reports
+coverage/
 
 # Config files
 jest.config.js
