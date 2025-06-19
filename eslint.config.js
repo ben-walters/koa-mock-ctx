@@ -8,7 +8,7 @@ const sort = require('eslint-plugin-simple-import-sort');
 
 module.exports = [
   {
-    files: ['**/*.ts', '**/*.tsx'],
+    files: ['src/**/*.ts', 'src/**/*.tsx'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
