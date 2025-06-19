@@ -5,14 +5,29 @@ import * as Koa from 'koa';
 
 export { httpAssert, HttpErrors };
 
-// 1. Define a mock request type that includes the 'body' property.
+export interface UploadedFile {
+  size: number;
+  filepath: string;
+  originalFilename: string | null;
+  mimetype: string | null;
+  lastModifiedDate: Date | null;
+}
+
+export interface MockFile {
+  filepath: string;
+  size?: number;
+  originalFilename?: string;
+  mimetype?: string;
+}
+
 export interface MockKoaRequest extends Koa.Request {
   body?: unknown;
+  files?: Record<string, UploadedFile | UploadedFile[]>;
 }
 
 export interface MockContextOptions {
   status?: number;
-  body?: unknown; // This will now be treated as the REQUEST body
+  body?: unknown;
   message?: string;
   headers?: Record<string, string | string[]>;
   method?: string;
@@ -24,10 +39,10 @@ export interface MockContextOptions {
   cookies?: Record<string, string>;
   state?: Record<string, any>;
   app?: Partial<Koa>;
+  files?: Record<string, MockFile | MockFile[]>;
   [key: string]: any;
 }
 
-// 2. Update MockKoaContext to use our new MockKoaRequest type.
 export interface MockKoaContext extends Koa.Context {
   request: MockKoaRequest;
   setBody(body: unknown): void;
@@ -43,6 +58,31 @@ function normalizeHeaders(headers: Record<string, any> = {}) {
     result[key.toLowerCase()] = headers[key];
   }
   return result;
+}
+
+function createUploadedFile(mockFile: MockFile): UploadedFile {
+  return {
+    size: mockFile.size ?? 0,
+    filepath: mockFile.filepath,
+    originalFilename: mockFile.originalFilename ?? 'mockfile.txt',
+    mimetype: mockFile.mimetype ?? 'application/octet-stream',
+    lastModifiedDate: new Date(),
+  };
+}
+
+function processMockFiles(
+  files: Record<string, MockFile | MockFile[]>
+): Record<string, UploadedFile | UploadedFile[]> {
+  const processed: Record<string, UploadedFile | UploadedFile[]> = {};
+  for (const key in files) {
+    const fileOrFiles = files[key];
+    if (Array.isArray(fileOrFiles)) {
+      processed[key] = fileOrFiles.map(createUploadedFile);
+    } else {
+      processed[key] = createUploadedFile(fileOrFiles);
+    }
+  }
+  return processed;
 }
 
 export function compose(middleware: Koa.Middleware[]) {
@@ -82,15 +122,22 @@ function createMockGenerator(baseOptions: MockContextOptions = {}) {
         ...overrideOptions.requestHeaders,
       },
       cookies: { ...baseOptions.cookies, ...overrideOptions.cookies },
+      files: { ...baseOptions.files, ...overrideOptions.files },
     };
 
     const { app, ...restOfOptions } = mergedForCloning;
 
     const options = structuredClone(restOfOptions);
 
+    const processedFiles = options.files
+      ? processMockFiles(options.files)
+      : undefined;
+
     const ctx = {} as MockKoaContext;
-    // 3. Assert the request object as our new MockKoaRequest type.
-    const request = { body: options.body } as MockKoaRequest;
+    const request = {
+      body: options.body,
+      files: processedFiles,
+    } as MockKoaRequest;
     const response = {} as Koa.Response;
 
     const finalApp = app ?? {
@@ -105,7 +152,7 @@ function createMockGenerator(baseOptions: MockContextOptions = {}) {
       app: finalApp,
       request,
       status: options.status ?? 200,
-      body: null, // Response body starts as null
+      body: null,
       message: options.message ?? 'OK',
       headers: {} as Record<string, string | string[]>,
       set(field: string | { [key: string]: any }, val?: any) {
@@ -154,7 +201,6 @@ function createMockGenerator(baseOptions: MockContextOptions = {}) {
       throw: (...args: any[]) => {
         throw HttpErrors(...args);
       },
-      // 4. This is now type-safe because ctx.request is a MockKoaRequest.
       setBody(body: unknown) {
         this.request.body = body;
       },
@@ -176,7 +222,6 @@ function createMockGenerator(baseOptions: MockContextOptions = {}) {
         set: (val) => (request.method = val),
       },
       url: { get: () => request.url, set: (val) => (request.url = val) },
-      // This alias for the request body is now also type-safe.
       requestBody: {
         get: () => request.body,
         set: (val) => (request.body = val),

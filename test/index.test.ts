@@ -145,6 +145,122 @@ describe('Koa Mock Context Utility', () => {
     });
   });
 
+  describe('File Upload Mocking', () => {
+    it('should correctly mock a single file upload', () => {
+      const [ctx] = mockContext({
+        files: {
+          avatar: {
+            filepath: '/tmp/abc-123',
+            originalFilename: 'my-photo.jpg',
+            mimetype: 'image/jpeg',
+            size: 54321,
+          },
+        },
+      });
+
+      expect(ctx.request.files).toBeDefined();
+      const avatarFile = ctx.request.files?.avatar;
+      expect(avatarFile).toBeDefined();
+      expect(Array.isArray(avatarFile)).toBe(false);
+
+      if (Array.isArray(avatarFile) || !avatarFile) {
+        fail('File should be a single object');
+      }
+
+      expect(avatarFile.filepath).toBe('/tmp/abc-123');
+      expect(avatarFile.originalFilename).toBe('my-photo.jpg');
+      expect(avatarFile.mimetype).toBe('image/jpeg');
+      expect(avatarFile.size).toBe(54321);
+      expect(avatarFile.lastModifiedDate).toBeInstanceOf(Date);
+    });
+
+    it('should apply default values for optional file properties', () => {
+      const [ctx] = mockContext({
+        files: {
+          document: {
+            filepath: '/tmp/required-path',
+          },
+        },
+      });
+
+      const docFile = ctx.request.files?.document;
+      if (Array.isArray(docFile) || !docFile) {
+        fail('File should be a single object');
+      }
+
+      expect(docFile.size).toBe(0);
+      expect(docFile.originalFilename).toBe('mockfile.txt');
+      expect(docFile.mimetype).toBe('application/octet-stream');
+    });
+
+    it('should correctly mock multiple files for a single field name', () => {
+      const [ctx] = mockContext({
+        files: {
+          gallery: [
+            { filepath: '/tmp/img1.png', originalFilename: 'img1.png' },
+            { filepath: '/tmp/img2.png', originalFilename: 'img2.png' },
+          ],
+        },
+      });
+
+      expect(ctx.request.files).toBeDefined();
+      const galleryFiles = ctx.request.files?.gallery;
+      expect(galleryFiles).toBeDefined();
+      expect(Array.isArray(galleryFiles)).toBe(true);
+
+      if (!Array.isArray(galleryFiles)) {
+        fail('Files should be an array');
+      }
+
+      expect(galleryFiles).toHaveLength(2);
+      expect(galleryFiles[0].originalFilename).toBe('img1.png');
+      expect(galleryFiles[1].filepath).toBe('/tmp/img2.png');
+    });
+
+    it('should handle multiple file fields in the same request', () => {
+      const [ctx] = mockContext({
+        files: {
+          profile: { filepath: '/tmp/profile.jpg' },
+          banner: { filepath: '/tmp/banner.png' },
+        },
+      });
+
+      expect(ctx.request.files?.profile).toBeDefined();
+      expect(ctx.request.files?.banner).toBeDefined();
+      expect((ctx.request.files?.profile as any).filepath).toBe(
+        '/tmp/profile.jpg'
+      );
+    });
+
+    it('should return undefined for files if none are provided', () => {
+      const [ctx] = mockContext();
+      expect(ctx.request.files).toEqual({});
+    });
+
+    it('should merge files when using a factory', () => {
+      const factory = mockContext.factory({
+        files: {
+          defaultConfig: { filepath: '/etc/config.json' },
+        },
+      });
+
+      const [ctx] = factory({
+        files: {
+          userUpload: { filepath: '/home/user/upload.txt' },
+        },
+      });
+
+      expect(ctx.request.files?.defaultConfig).toBeDefined();
+      expect(ctx.request.files?.userUpload).toBeDefined();
+      expect((ctx.request.files?.defaultConfig as any).filepath).toBe(
+        '/etc/config.json'
+      );
+      expect((ctx.request.files?.userUpload as any).filepath).toBe(
+        '/home/user/upload.txt'
+      );
+    });
+  });
+
   describe('Error Handling', () => {
     it('should correctly throw an error using ctx.throw', async () => {
       const [ctx] = mockContext();
@@ -178,7 +294,7 @@ describe('Koa Mock Context Utility', () => {
   });
 
   describe('Context Helper Methods', () => {
-    it('should set the body using the setBody helper', () => {
+    it('should set the request body using the setBody helper', () => {
       const [ctx] = mockContext();
       ctx.setBody({ success: true });
       expect(ctx.request.body).toEqual({ success: true });
@@ -214,6 +330,14 @@ describe('Koa Mock Context Utility', () => {
       const [ctx] = mockContext();
       ctx.message = 'Payment Required';
       expect(ctx.message).toBe('Payment Required');
+    });
+
+    it('should allow getting and setting the request body via requestBody alias', () => {
+      const [ctx] = mockContext({ body: { initial: true } });
+      expect(ctx.requestBody).toEqual({ initial: true });
+
+      ctx.requestBody = { updated: true };
+      expect(ctx.request.body).toEqual({ updated: true });
     });
 
     it('should set multiple response headers when an object is passed to ctx.set', () => {
