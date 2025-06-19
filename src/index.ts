@@ -283,15 +283,14 @@ export interface KoaMockCtxOptions {
   bodyParser?: boolean;
 }
 
-type EngineContext<O extends KoaMockCtxOptions, UserType> = MockKoaContext &
-  (O['bodyParser'] extends true ? BodyParserContext : {}) &
-  (UserType extends MockKoaContext ? UserType : {});
+type EngineContext<O extends KoaMockCtxOptions> = MockKoaContext &
+  (O['bodyParser'] extends true ? BodyParserContext : {});
 
-export function createKoaMockCtx<
-  UserType extends MockKoaContext = MockKoaContext,
-  O extends KoaMockCtxOptions = {}
->(engineOptions?: O, baseOptions?: MockContextOptions) {
-  type FinalContextType = EngineContext<O, UserType>;
+export function createKoaMockCtx<O extends KoaMockCtxOptions = {}>(
+  engineOptions?: O,
+  baseOptions?: MockContextOptions
+) {
+  type FinalContextType = EngineContext<O>;
 
   const generator = createMockGenerator<FinalContextType>(baseOptions);
 
