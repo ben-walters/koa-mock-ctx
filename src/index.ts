@@ -5,6 +5,8 @@ import * as Koa from 'koa';
 
 export { httpAssert, HttpErrors };
 
+// --- Core Interfaces ---
+
 export interface UploadedFile {
   size: number;
   filepath: string;
@@ -23,7 +25,7 @@ export interface MockFile {
 export interface MockKoaRequest extends Koa.Request {
   body?: unknown;
   files?: Record<string, UploadedFile | UploadedFile[]>;
-  [key: string]: any;
+  [key: string]: any; // Allows for dynamic properties like `params`
 }
 
 export interface MockContextOptions {
@@ -49,10 +51,12 @@ export interface MockKoaContext extends Koa.Context {
   setBody(body: unknown): void;
   setHeaders(headers: Record<string, string | string[]>): void;
   setCookies(cookies: Record<string, string>): void;
-  [key: string]: any;
+  [key: string]: any; // Allows for dynamic properties like `params`
 }
 
 export type MockKoaNext = jest.Mock<() => Promise<any>>;
+
+// --- Internal Helper Functions ---
 
 function normalizeHeaders(headers: Record<string, any> = {}) {
   const result: Record<string, any> = {};
@@ -87,29 +91,9 @@ function processMockFiles(
   return processed;
 }
 
-export function compose(middleware: Koa.Middleware[]) {
-  return function (context: Koa.Context, next?: Koa.Next) {
-    let index = -1;
-    const dispatch = (i: number): Promise<void> => {
-      if (i <= index) {
-        return Promise.reject(new Error('next() called multiple times'));
-      }
-      index = i;
-      const fn = middleware[i];
-      if (!fn) {
-        return next ? next() : Promise.resolve();
-      }
-      try {
-        return Promise.resolve(fn(context, () => dispatch(i + 1)));
-      } catch (err) {
-        return Promise.reject(err);
-      }
-    };
-    return dispatch(0);
-  };
-}
+// --- Internal Core Logic ---
 
-function createMockGenerator<T extends MockKoaContext = MockKoaContext>(
+function createMockGenerator<T extends MockKoaContext>(
   baseOptions: MockContextOptions = {}
 ) {
   return (overrideOptions: MockContextOptions = {}): [T, MockKoaNext] => {
@@ -264,18 +248,60 @@ function createMockGenerator<T extends MockKoaContext = MockKoaContext>(
   };
 }
 
-type MockContextFunction = {
-  <T extends MockKoaContext = MockKoaContext>(options?: MockContextOptions): [
-    T,
-    MockKoaNext
-  ];
-  factory: <T extends MockKoaContext = MockKoaContext>(
-    baseOptions?: MockContextOptions
-  ) => (overrideOptions?: MockContextOptions) => [T, MockKoaNext];
-};
+// --- Public API ---
 
-export const mockContext = createMockGenerator() as MockContextFunction;
+export function compose(middleware: Koa.Middleware[]) {
+  return function (context: Koa.Context, next?: Koa.Next) {
+    let index = -1;
+    const dispatch = (i: number): Promise<void> => {
+      if (i <= index) {
+        return Promise.reject(new Error('next() called multiple times'));
+      }
+      index = i;
+      const fn = middleware[i];
+      if (!fn) {
+        return next ? next() : Promise.resolve();
+      }
+      try {
+        return Promise.resolve(fn(context, () => dispatch(i + 1)));
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    };
+    return dispatch(0);
+  };
+}
 
-mockContext.factory = <T extends MockKoaContext = MockKoaContext>(
-  baseOptions?: MockContextOptions
-) => createMockGenerator<T>(baseOptions);
+interface BodyParserContext {
+  request: {
+    body: any;
+    files: Record<string, UploadedFile | UploadedFile[]>;
+  };
+}
+
+export interface KoaMockCtxOptions {
+  bodyParser?: boolean;
+}
+
+type EngineContext<O extends KoaMockCtxOptions, UserType> = MockKoaContext &
+  (O['bodyParser'] extends true ? BodyParserContext : {}) &
+  (UserType extends MockKoaContext ? UserType : {});
+
+export function createKoaMockCtx<
+  UserType extends MockKoaContext = MockKoaContext,
+  O extends KoaMockCtxOptions = {}
+>(engineOptions?: O, baseOptions?: MockContextOptions) {
+  type FinalContextType = EngineContext<O, UserType>;
+
+  const generator = createMockGenerator<FinalContextType>(baseOptions);
+
+  return {
+    create: (
+      overrideOptions?: MockContextOptions
+    ): [FinalContextType, MockKoaNext] => {
+      return generator(overrideOptions);
+    },
+  };
+}
+
+export const mockContext = createKoaMockCtx().create;

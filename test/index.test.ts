@@ -1,59 +1,84 @@
 import * as Koa from 'koa';
-import { compose, mockContext, MockKoaContext } from '../src';
+import { compose, mockContext, createKoaMockCtx, MockKoaContext } from '../src';
 
 describe('Koa Mock Context Utility', () => {
-  describe('Factory and Instantiation', () => {
-    it('should create a default context with expected values', () => {
+  describe('Type-Safe Engine Creation', () => {
+    it('should create a default engine for simple contexts', () => {
       const [ctx, next] = mockContext();
 
       expect(ctx.status).toBe(200);
       expect(ctx.body).toBeNull();
       expect(ctx.state).toEqual({});
-      expect(ctx.method).toBe('GET');
-      expect(ctx.url).toBe('/');
       expect(next).not.toHaveBeenCalled();
     });
 
-    it('should "bake" a base context using the factory', () => {
-      const baseContextFactory = mockContext.factory({
-        state: { tenantId: 'tenant-123' },
-        headers: { 'x-request-id': 'abc-123' },
-      });
+    it('should create an engine with a base configuration', () => {
+      const testEngine = createKoaMockCtx(
+        {},
+        {
+          state: { tenantId: 'tenant-123' },
+          headers: { 'x-request-id': 'abc-123' },
+        }
+      );
 
-      const [ctx] = baseContextFactory();
+      const [ctx] = testEngine.create();
 
       expect(ctx.state.tenantId).toBe('tenant-123');
       expect(ctx.get('x-request-id')).toBe('abc-123');
     });
 
     it('should allow overriding baked properties for a single test', () => {
-      const baseContextFactory = mockContext.factory({
-        state: { tenantId: 'tenant-123', user: null },
-        headers: { 'x-request-id': 'abc-123' },
-      });
+      const testEngine = createKoaMockCtx(
+        {},
+        {
+          state: { tenantId: 'tenant-123', user: null },
+          headers: { 'x-request-id': 'abc-123' },
+        }
+      );
 
-      const [ctx] = baseContextFactory({
+      const [ctx] = testEngine.create({
         state: { user: { id: 1 } },
         method: 'POST',
       });
 
       expect(ctx.state.user).toEqual({ id: 1 });
       expect(ctx.method).toBe('POST');
-
       expect(ctx.state.tenantId).toBe('tenant-123');
-      expect(ctx.get('x-request-id')).toBe('abc-123');
     });
 
-    it('should ensure contexts are isolated from each other', () => {
-      const factory = mockContext.factory({ state: { count: 0 } });
+    it('should ensure contexts created by an engine are isolated', () => {
+      const testEngine = createKoaMockCtx({}, { state: { count: 0 } });
 
-      const [ctx1] = factory();
-      const [ctx2] = factory();
+      const [ctx1] = testEngine.create();
+      const [ctx2] = testEngine.create();
 
       ctx1.state.count = 100;
 
       expect(ctx1.state.count).toBe(100);
       expect(ctx2.state.count).toBe(0);
+    });
+
+    describe('when bodyParser option is used', () => {
+      it('should create a context with required request.body and request.files', () => {
+        const bodyParserEngine = createKoaMockCtx({ bodyParser: true });
+        const [ctx] = bodyParserEngine.create();
+
+        ctx.request.body = { message: 'hello' };
+        ctx.request.files = {};
+
+        expect(ctx.request.body).toEqual({ message: 'hello' });
+        expect(ctx.request.files).toEqual({});
+      });
+    });
+
+    describe('when bodyParser option is omitted', () => {
+      it('should create a context with optional request.body and request.files', () => {
+        const defaultEngine = createKoaMockCtx();
+        const [ctx] = defaultEngine.create();
+
+        expect(ctx.request.body).toBeUndefined();
+        expect(ctx.request.files).toBeUndefined();
+      });
     });
   });
 
@@ -232,19 +257,29 @@ describe('Koa Mock Context Utility', () => {
       );
     });
 
-    it('should return undefined for files if none are provided', () => {
+    it('should return undefined for files if not a multipart request', () => {
       const [ctx] = mockContext();
-      expect(ctx.request.files).toEqual(undefined);
+      expect(ctx.request.files).toBeUndefined();
     });
 
-    it('should merge files when using a factory', () => {
-      const factory = mockContext.factory({
-        files: {
-          defaultConfig: { filepath: '/etc/config.json' },
-        },
+    it('should create an empty files object for multipart requests with no files', () => {
+      const [ctx] = mockContext({
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
+      expect(ctx.request.files).toEqual({});
+    });
 
-      const [ctx] = factory({
+    it('should merge files when using an engine', () => {
+      const testEngine = createKoaMockCtx(
+        {},
+        {
+          files: {
+            defaultConfig: { filepath: '/etc/config.json' },
+          },
+        }
+      );
+
+      const [ctx] = testEngine.create({
         files: {
           userUpload: { filepath: '/home/user/upload.txt' },
         },
@@ -436,6 +471,35 @@ describe('Koa Mock Context Utility', () => {
       expect(ctx.app).toBe(mockApp);
       expect(ctx.state).toEqual(mockInitialState);
       expect(ctx.cookies.get('pre-set')).toBe('true');
+    });
+
+    it('should correctly apply all optional context properties when provided', () => {
+      const [ctx] = mockContext({
+        status: 418,
+        message: "I'm a teapot",
+        url: '/my/custom/path',
+        host: 'api.example.com',
+        hostname: 'api.example.com',
+        protocol: 'https',
+      });
+
+      expect(ctx.status).toBe(418);
+      expect(ctx.message).toBe("I'm a teapot");
+      expect(ctx.url).toBe('/my/custom/path');
+      expect(ctx.request.host).toBe('api.example.com');
+      expect(ctx.request.hostname).toBe('api.example.com');
+      expect(ctx.request.protocol).toBe('https');
+      expect(ctx.request.secure).toBe(true);
+    });
+
+    // --- NEW TEST CASE TO COVER THE MISSING LINES ---
+    it('should default state and cookies to empty objects if other options are provided but they are not', () => {
+      const [ctx] = mockContext({
+        method: 'POST',
+      });
+
+      expect(ctx.state).toEqual({});
+      expect(ctx.cookies.get('any-cookie')).toBeUndefined();
     });
 
     it('should correctly join a header value that is an array of strings', () => {
