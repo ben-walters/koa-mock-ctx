@@ -2,7 +2,10 @@
 
 [![NPM Version](https://img.shields.io/npm/v/koa-mock-ctx.svg)](https://www.npmjs.com/package/koa-mock-ctx)
 [![CI](https://github.com/ben-walters/koa-mock-ctx/actions/workflows/ci.yml/badge.svg)](https://github.com/ben-walters/koa-mock-ctx/actions)
+[![codecov](https://codecov.io/gh/ben-walters/koa-mock-ctx/graph/badge.svg?token=YOUR_TOKEN_HERE)](https://codecov.io/gh/ben-walters/koa-mock-ctx)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+A lightweight utility for testing Koa middleware in complete isolation...
 
 A lightweight utility for testing Koa middleware in complete isolation. This toolkit allows you to craft precise, fast, and reliable unit tests for your middleware without needing to run a live server.
 
