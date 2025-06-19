@@ -3,7 +3,8 @@ import httpAssert from 'http-assert';
 import HttpErrors from 'http-errors';
 import * as Koa from 'koa';
 
-// ... (all interfaces remain the same) ...
+export { httpAssert, HttpErrors };
+
 export interface UploadedFile {
   size: number;
   filepath: string;
@@ -22,6 +23,7 @@ export interface MockFile {
 export interface MockKoaRequest extends Koa.Request {
   body?: unknown;
   files?: Record<string, UploadedFile | UploadedFile[]>;
+  [key: string]: any;
 }
 
 export interface MockContextOptions {
@@ -47,11 +49,11 @@ export interface MockKoaContext extends Koa.Context {
   setBody(body: unknown): void;
   setHeaders(headers: Record<string, string | string[]>): void;
   setCookies(cookies: Record<string, string>): void;
+  [key: string]: any;
 }
 
 export type MockKoaNext = jest.Mock<() => Promise<any>>;
 
-// ... (helper functions remain the same) ...
 function normalizeHeaders(headers: Record<string, any> = {}) {
   const result: Record<string, any> = {};
   for (const key in headers) {
@@ -139,19 +141,14 @@ function createMockGenerator<T extends MockKoaContext = MockKoaContext>(
       | Record<string, UploadedFile | UploadedFile[]>
       | undefined = undefined;
 
-    // --- NEW, CORRECTED LOGIC ---
-    // If the user provides a `files` object, it's the primary signal.
     if (options.files) {
-      // Always process the files if they exist.
       processedFiles = processMockFiles(options.files);
-      // As a convenience, add the multipart header if it's not already there.
       if (!normalizedHeaders['content-type']) {
         normalizedHeaders['content-type'] = 'multipart/form-data';
       }
     } else if (
       (normalizedHeaders['content-type'] || '').includes('multipart/form-data')
     ) {
-      // If no files are provided but the header is present, create an empty object.
       processedFiles = {};
     }
 
@@ -196,7 +193,7 @@ function createMockGenerator<T extends MockKoaContext = MockKoaContext>(
       ctx,
       app: finalApp,
       response,
-      headers: normalizedHeaders, // Use the potentially modified headers
+      headers: normalizedHeaders,
       method: options.method ?? 'GET',
       url: options.url ?? '/',
       host: options.host ?? 'test.com',
