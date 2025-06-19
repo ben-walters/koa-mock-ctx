@@ -32,16 +32,20 @@ jobs:
       - name: Run tests
         run: npm run test
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-artifact
-          path: ./dist/
-
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload package for publishing
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-package
+          path: |
+            dist
+            package.json
+            README.md
+            # Add any other files needed for the package, e.g., LICENSE
 
   publish:
     needs: build-and-test
@@ -52,14 +56,10 @@ jobs:
       contents: read
 
     steps:
-      - name: Download build artifact
+      - name: Download package for publishing
         uses: actions/download-artifact@v4
         with:
-          name: dist-artifact
-          path: ./dist
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
+          name: publish-package
 
       - name: Set up Node.js for publishing
         uses: actions/setup-node@v4
