@@ -28,11 +28,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Check Version and Create Tag
+      - name: Get version from package.json
+        id: get_version
+        run: echo "version=v$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Check for existing tag
         id: tag_version
         uses: mathieudutour/github-tag-action@v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          custom_tag: ${{ steps.get_version.outputs.version }}
 
       - name: Build package
         if: steps.tag_version.outputs.new_tag

@@ -1,0 +1,42 @@
+name: CI - Test and Build
+
+on:
+  push:
+    branches-ignore:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test-and-build:
+    name: Test, Lint & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint code
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true # Optional: fail the build if Codecov fails
+
+      - name: Build package
+        run: npm run build
