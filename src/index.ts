@@ -5,9 +5,14 @@ import * as Koa from 'koa';
 
 export { httpAssert, HttpErrors };
 
+// 1. Define a mock request type that includes the 'body' property.
+export interface MockKoaRequest extends Koa.Request {
+  body?: unknown;
+}
+
 export interface MockContextOptions {
   status?: number;
-  body?: unknown;
+  body?: unknown; // This will now be treated as the REQUEST body
   message?: string;
   headers?: Record<string, string | string[]>;
   method?: string;
@@ -22,7 +27,9 @@ export interface MockContextOptions {
   [key: string]: any;
 }
 
+// 2. Update MockKoaContext to use our new MockKoaRequest type.
 export interface MockKoaContext extends Koa.Context {
+  request: MockKoaRequest;
   setBody(body: unknown): void;
   setHeaders(headers: Record<string, string | string[]>): void;
   setCookies(cookies: Record<string, string>): void;
@@ -82,10 +89,10 @@ function createMockGenerator(baseOptions: MockContextOptions = {}) {
     const options = structuredClone(restOfOptions);
 
     const ctx = {} as MockKoaContext;
-    const request = {} as Koa.Request;
+    // 3. Assert the request object as our new MockKoaRequest type.
+    const request = { body: options.body } as MockKoaRequest;
     const response = {} as Koa.Response;
 
-    // Use the separated `app` reference, or the default if none was provided.
     const finalApp = app ?? {
       emit: jest.fn(),
       onerror: (err: Error) => console.error('Mocked app.onerror:', err),
@@ -97,9 +104,8 @@ function createMockGenerator(baseOptions: MockContextOptions = {}) {
       ctx,
       app: finalApp,
       request,
-      // ... rest of the function
       status: options.status ?? 200,
-      body: options.body ?? null,
+      body: null, // Response body starts as null
       message: options.message ?? 'OK',
       headers: {} as Record<string, string | string[]>,
       set(field: string | { [key: string]: any }, val?: any) {
@@ -148,8 +154,9 @@ function createMockGenerator(baseOptions: MockContextOptions = {}) {
       throw: (...args: any[]) => {
         throw HttpErrors(...args);
       },
+      // 4. This is now type-safe because ctx.request is a MockKoaRequest.
       setBody(body: unknown) {
-        this.body = body;
+        this.request.body = body;
       },
       setHeaders(headers: Record<string, string | string[]>) {
         for (const key in headers) {
@@ -169,6 +176,11 @@ function createMockGenerator(baseOptions: MockContextOptions = {}) {
         set: (val) => (request.method = val),
       },
       url: { get: () => request.url, set: (val) => (request.url = val) },
+      // This alias for the request body is now also type-safe.
+      requestBody: {
+        get: () => request.body,
+        set: (val) => (request.body = val),
+      },
       get: { value: request.get.bind(request) },
       body: { get: () => response.body, set: (val) => (response.body = val) },
       status: {

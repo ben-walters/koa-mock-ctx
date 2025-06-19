@@ -58,6 +58,7 @@
     "testing",
     "jest",
     "middleware",
-    "koa "
+    "koa",
+    "koa-mock-ctx"
   ]
 }

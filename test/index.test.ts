@@ -181,7 +181,7 @@ describe('Koa Mock Context Utility', () => {
     it('should set the body using the setBody helper', () => {
       const [ctx] = mockContext();
       ctx.setBody({ success: true });
-      expect(ctx.body).toEqual({ success: true });
+      expect(ctx.request.body).toEqual({ success: true });
     });
 
     it('should set request headers using the setHeaders helper', () => {
