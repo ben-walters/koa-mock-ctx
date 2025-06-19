@@ -1,18 +1,23 @@
-name: Build, Test, and Publish
+name: Release and Publish
 
 on:
   push:
     branches:
       - main
-    tags:
-      - 'v*.*.*'
+
+permissions:
+  contents: write
 
 jobs:
-  build-and-test:
+  release-and-publish:
+    name: Release, Tag & Publish
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -23,51 +28,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint code
-        run: npm run lint
+      - name: Check Version and Create Tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build package
+        if: steps.tag_version.outputs.new_tag
         run: npm run build
 
-      - name: Run tests
-        run: npm run test
-
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Upload package for publishing
-        uses: actions/upload-artifact@v4
-        with:
-          name: publish-package
-          path: |
-            dist
-            package.json
-            README.md
-            # Add any other files needed for the package, e.g., LICENSE
-
-  publish:
-    needs: build-and-test
-    if: startsWith(github.ref, 'refs/tags/')
-
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: Download package for publishing
-        uses: actions/download-artifact@v4
-        with:
-          name: publish-package
-
-      - name: Set up Node.js for publishing
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20.x'
-          registry-url: 'https://registry.npmjs.org/'
-
       - name: Publish to NPM
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        if: steps.tag_version.outputs.new_tag
+        uses: JS-DevTools/npm-publish@v3
+        with:
+          token: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        if: steps.tag_version.outputs.new_tag
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag_version.outputs.new_tag }}
+          generate_release_notes: true
