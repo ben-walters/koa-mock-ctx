@@ -7,15 +7,15 @@
 
 A lightweight utility for testing Koa middleware in complete isolation. This toolkit allows you to craft precise, fast, and reliable unit tests for your middleware without needing to run a live server.
 
-It provides a single, powerful function to create mock Koa `Context` objects, integrates seamlessly with Jest, and includes a standard `compose` function to test middleware chains.
+It provides a powerful factory to create mock Koa `Context` objects, integrates seamlessly with Jest, and includes a standard `compose` function to test middleware chains.
 
 ## Features
 
-- **Unified API**: A single function for both simple contexts and reusable factories.
-- **Type-Safe**: Written in TypeScript to provide excellent autocompletion.
-- **Realistic Mocking**: Accurately mocks Koa's context, request, and response.
-- **File Uploads**: Easily simulate `multipart/form-data` file uploads.
-- **Jest Integration**: The mocked `next` function is a `jest.Mock` instance.
+- **Type-Safe Testing Engine**: Define types for your setup, providing a first-class TypeScript experience.
+- **Test Isolation by Design**: The factory pattern ensures every test runs in a pristine, isolated context.
+- **Realistic Mocking**: Accurately mocks Koa's context, request, and response objects and methods.
+- **Built-in Body Parser Simulation**: Easily test middleware that requires a parsed request body or files.
+- **Jest Integration**: The mocked `next` function is a `jest.Mock` instance, ready for assertions.
 - **Zero Dependencies**: Other than Koa itself.
 
 ## Installation
@@ -28,209 +28,216 @@ npm install --save-dev koa-mock-ctx
 yarn add --dev koa-mock-ctx
 ```
 
-## Quick Start
+## Usage
 
-This library exports a single main function, `mockContext`, which can be used in two ways.
+This library is designed to scale with your testing needs, from the simplest middleware to complex, type-augmented contexts.
 
-### 1. For Simple Tests: Call `mockContext` Directly
+### Pattern 1: The Basics
 
-When you need a basic, one-off context for a test, simply call `mockContext` with any options you need.
+For simple middleware, you can import and use `mockContext` directly. It's a ready-to-use generator for basic test cases.
 
-**Middleware (`src/middleware/add-user.ts`):**
+**Middleware (`src/middleware/set-header.ts`):**
 
 ```typescript
 import * as Koa from 'koa';
 
-export const addUser = async (ctx: Koa.Context, next: Koa.Next) => {
-  const userId = ctx.get('x-user-id');
-  if (userId) {
-    // In a real app, you'd look this up in a database
-    ctx.state.user = { id: userId, name: 'Test User' };
-  }
+export const setApiHeader = async (ctx: Koa.Context, next: Koa.Next) => {
+  ctx.set('X-API-Version', 'v2');
   await next();
 };
 ```
 
-**Test (`__tests__/add-user.test.ts`):**
+**Test (`__tests__/set-header.test.ts`):**
 
 ```typescript
-import { addUser } from '../src/middleware/add-user';
+import { setApiHeader } from '../src/middleware/set-header';
 import { mockContext } from 'koa-mock-ctx';
 
-describe('addUser Middleware', () => {
-  it('should add user to state if header is present', async () => {
-    // Arrange: Create a context with the required header
-    const [ctx, next] = mockContext({
-      headers: { 'x-user-id': 'user-42' },
-    });
+describe('setApiHeader Middleware', () => {
+  it('should set the X-API-Version header', async () => {
+    // Arrange: Create a basic context.
+    const [ctx, next] = mockContext();
 
-    // Act: Run the middleware
-    await addUser(ctx, next);
+    // Act: Run the middleware.
+    await setApiHeader(ctx, next);
 
-    // Assert: Check the context and that next was called
-    expect(ctx.state.user).toEqual({ id: 'user-42', name: 'Test User' });
+    // Assert: Check the response header and that next was called.
+    expect(ctx.response.get('X-API-Version')).toBe('v2');
     expect(next).toHaveBeenCalledTimes(1);
   });
 });
 ```
 
-### 2. For Reusable Setups: Use `mockContext.factory()`
+### Pattern 2: Type-Safe Body Parsing (Recommended)
 
-To keep your tests DRY (Don't Repeat Yourself), use the `.factory()` method to create a reusable generator for a common setup (like an authenticated user).
+For real-world applications, you'll need to test middleware that reads the request body. The recommended approach is to create a pre-configured, type-safe "engine" for your test suite.
 
-**Test (`__tests__/protected-routes.test.ts`):**
+**Step 1: Create a Typed Engine**
+
+In a shared test helper file, create an engine that simulates the presence of a body-parser.
+
+**`__tests__/helpers.ts`**
 
 ```typescript
-import { someAdminMiddleware } from '../src/middleware/admin';
-import { mockContext } from 'koa-mock-ctx';
+import { createKoaMockCtx } from 'koa-mock-ctx';
 
-// Arrange: Create a factory for an authenticated admin user.
-const adminContextFactory = mockContext.factory({
-  state: {
-    user: { id: 'admin-1', role: 'admin' },
-  },
+// Create an engine that simulates a body-parser being present.
+// The returned `testCtxEngine` is now permanently type-safe for this setup.
+export const testCtxEngine = createKoaMockCtx({
+  bodyParser: true,
 });
+```
 
-describe('someAdminMiddleware', () => {
-  it('should allow access for an admin user', async () => {
-    const [ctx, next] = adminContextFactory();
-    await someAdminMiddleware(ctx, next);
-    expect(ctx.status).not.toBe(403);
-    expect(next).toHaveBeenCalled();
+**Step 2: Use Your Engine in Tests**
+
+Import your custom engine. Its `.create()` method will generate perfectly typed contexts where `ctx.request.body` is available.
+
+**`__tests__/process-user.test.ts`**
+
+```typescript
+import { testCtxEngine } from './helpers';
+import { processUser } from '../src/middleware/process-user'; // Your middleware
+
+describe('processUser Middleware', () => {
+  it('should greet the user when a name is provided', async () => {
+    // Arrange: Use the engine to create a context with a request body.
+    const [ctx] = testCtxEngine.create({
+      requestBody: { name: 'Alice' },
+    });
+
+    // Act: Run the middleware.
+    await processUser(ctx);
+
+    // Assert: The context is typed correctly, and the test is clean.
+    expect(ctx.body).toEqual({ message: `Hello, Alice` });
   });
 });
 ```
 
-## Mocking File Uploads
+### Pattern 3: Advanced Usage with Custom Context Types
 
-You can simulate `multipart/form-data` file uploads by providing a `files` object in the options. This populates `ctx.request.files` with a structure that mimics popular body-parsing middleware like `koa-body`.
+If your application uses middleware that augments the context (e.g., an auth middleware adding `ctx.state.user`), you can pass your custom type as a generic. The library will merge your type with the types from the engine configuration.
 
-**Middleware (`src/middleware/avatar-upload.ts`):**
+**Step 1: Define Your Custom Context and Engine**
+
+**`__tests__/helpers.ts`**
 
 ```typescript
-import * as Koa from 'koa';
+import { ParameterizedContext } from 'koa';
+import { createKoaMockCtx } from 'koa-mock-ctx';
 
-// The MockKoaRequest type can be imported from the library for type safety
-import { MockKoaRequest } from 'koa-mock-ctx';
+// 1. Define your application's full context shape
+export interface AppState {
+  user: { id: string; role: 'admin' | 'user' };
+}
+export type AppContext = ParameterizedContext<AppState>;
 
-export const handleAvatarUpload = async (ctx: Koa.Context) => {
-  const { files } = ctx.request as MockKoaRequest;
-  const avatar = files.avatar;
-
-  if (!avatar || Array.isArray(avatar)) {
-    ctx.throw(400, 'An avatar file is required.');
-  }
-
-  // In a real app, you would process the file at `avatar.filepath`
-  ctx.body = {
-    message: 'Upload successful',
-    filename: avatar.originalFilename,
-    size: avatar.size,
-  };
-};
+// 2. Create the engine, passing your type as a generic
+export const testCtxEngine = createKoaMockCtx<AppContext>({
+  bodyParser: true, // Also enable the bodyParser plugin
+});
 ```
 
-**Test (`__tests__/avatar-upload.test.ts`):**
+**Step 2: Test Your Advanced Middleware**
+
+The engine now produces contexts that are aware of **both** `request.body` (from the `bodyParser` option) and `state.user` (from your `AppContext` type).
+
+**`__tests__/admin-action.test.ts`**
 
 ```typescript
-import { handleAvatarUpload } from '../src/middleware/avatar-upload';
-import { mockContext } from 'koa-mock-ctx';
+import { testCtxEngine, AppContext } from './helpers';
+import { adminAction } from '../src/middleware/admin-action';
 
-describe('handleAvatarUpload', () => {
-  it('should process a valid file upload', async () => {
-    const [ctx, next] = mockContext({
-      // Set the content-type to trigger the file parser simulation
-      headers: { 'Content-Type': 'multipart/form-data' },
-      files: {
-        avatar: {
-          filepath: '/tmp/temp-file-123',
-          originalFilename: 'my-photo.png',
-          mimetype: 'image/png',
-          size: 12345,
-        },
-      },
+describe('adminAction Middleware', () => {
+  it('should allow an admin user to perform an action', async () => {
+    // Arrange: Create a context with both state and a request body.
+    const [ctx] = testCtxEngine.create({
+      state: { user: { id: '123', role: 'admin' } },
+      requestBody: { action: 'delete-all' },
     });
 
-    await handleAvatarUpload(ctx);
+    // Act: Run the middleware.
+    await adminAction(ctx as AppContext); // Cast is for the middleware signature
 
+    // Assert: Your IDE provides full autocompletion for ctx.state.user.role
+    // and ctx.request.body.action
     expect(ctx.status).toBe(200);
-    expect(ctx.body).toEqual({
-      message: 'Upload successful',
-      filename: 'my-photo.png',
-      size: 12345,
-    });
+    expect(ctx.body).toEqual({ result: 'action "delete-all" completed' });
   });
 });
 ```
+
+---
 
 ## API Reference
 
+### `createKoaMockCtx<UserType>(engineOptions?, baseOptions?)`
+
+The main factory function for creating a type-safe mock context engine.
+
+- `UserType`: An optional generic for your application's custom context type. It will be merged with any types generated by the `engineOptions`.
+- `engineOptions?: KoaMockCtxOptions`: Configuration for the engine's behavior and types.
+  - `bodyParser: boolean`: If `true`, the engine will produce contexts where `request.body` and `request.files` are available, simulating a body-parser. Defaults to `false`.
+- `baseOptions?: MockContextOptions`: Default values (e.g., a base `state` object) to apply to every context created by this engine.
+
+Returns an engine object with a single method:
+
+- `.create(overrideOptions?: MockContextOptions)`: Creates a new, isolated `[ctx, next]` tuple.
+
 ### `mockContext(options?: MockContextOptions)`
 
-The main function. Call it directly to get a mock context tuple `[ctx, next]` for a simple test.
-
-### `mockContext.factory(baseOptions?: MockContextOptions)`
-
-Creates a **factory function** for generating mock contexts with a shared base configuration. The returned factory can then be called with `overrideOptions` for specific tests.
+A default, ready-to-use generator for simple test cases where no special types are needed. It is a shortcut for `createKoaMockCtx().create`.
 
 ### `compose(middleware: Koa.Middleware[])`
 
-A standard Koa middleware composer. It takes an array of middleware and returns a single function that will execute them in sequence.
+A standard Koa middleware composer for testing a chain of middleware.
 
 ### `MockContextOptions`
 
-The options object for `mockContext` or `mockContext.factory`.
+The options object for creating a context.
 
-| Property  | Type                                     | Description                                                                                                                            | Default      |
-| :-------- | :--------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------- | :----------- |
-| `state`   | `Record<string, any>`                    | The initial `ctx.state` object.                                                                                                        | `{}`         |
-| `headers` | `Record<string, string \| string[]>`     | **Request headers**. Used to populate `ctx.headers` and `ctx.get()`.                                                                   | `{}`         |
-| `method`  | `string`                                 | The request method.                                                                                                                    | `'GET'`      |
-| `url`     | `string`                                 | The request URL.                                                                                                                       | `'/'`        |
-| `body`    | `unknown`                                | The initial **request body**. Populates `ctx.request.body`.                                                                            | `undefined`  |
-| `files`   | `Record<string, MockFile \| MockFile[]>` | Mock files for `multipart/form-data` requests. Populates `ctx.request.files`. Requires `Content-Type` header to be set to `multipart`. | `undefined`  |
-| `status`  | `number`                                 | The initial **response status**.                                                                                                       | `200`        |
-| `cookies` | `Record<string, string>`                 | Initial cookies available via `ctx.cookies.get()`.                                                                                     | `{}`         |
-| `host`    | `string`                                 | The request host.                                                                                                                      | `'test.com'` |
+| Property         | Type                                     | Description                                                 | Default      |
+| :--------------- | :--------------------------------------- | :---------------------------------------------------------- | :----------- |
+| `state`          | `Record<string, any>`                    | The initial `ctx.state` object.                             | `{}`         |
+| `requestHeaders` | `Record<string, string \| string[]>`     | **Request headers**. Populates `ctx.headers`.               | `{}`         |
+| `method`         | `string`                                 | The request method.                                         | `'GET'`      |
+| `url`            | `string`                                 | The request URL.                                            | `'/'`        |
+| `requestBody`    | `unknown`                                | The initial **request body**. Populates `ctx.request.body`. | `undefined`  |
+| `files`          | `Record<string, MockFile \| MockFile[]>` | Mock files for multipart requests.                          | `undefined`  |
+| `cookies`        | `Record<string, string>`                 | Initial cookies available via `ctx.cookies.get()`.          | `{}`         |
+| `host`           | `string`                                 | The request host.                                           | `'test.com'` |
+| `...`            | `any`                                    | Any other properties are attached directly to the `ctx`.    |              |
 
-### The Mock Context Object (`MockKoaContext`)
+### Context Helper Methods
 
-The returned `ctx` object realistically mimics the real Koa `Context`, including properties like `ctx.body`, `ctx.status`, `ctx.get()`, and `ctx.throw()`.
+The mock context object (`ctx`) includes several convenience methods to simulate the work of upstream middleware or to simplify test setup.
 
-For convenience, it also includes three special helper methods to make your tests cleaner:
-
-- `setBody(body: unknown)`: A shortcut for `ctx.request.body = body;`.
-- `setHeaders(headers: Record<string, string | string[]>)`: Sets multiple **request** headers at once.
-- `setCookies(cookies: Record<string, string>)`: Sets multiple cookies at once.
+- `ctx.setBody(body: unknown)`: Sets the **request** body. A shortcut for `ctx.request.body = body;`.
+- `ctx.setHeaders(headers: Record<string, ...>)`: Sets multiple **request** headers at once.
+- `ctx.setCookies(cookies: Record<string, string>)`: Sets multiple cookies at once.
 
 **Example:**
 
 ```typescript
 import { mockContext } from 'koa-mock-ctx';
 
-it('should use the helper methods', async () => {
+it('should use the helper methods for setup', async () => {
+  // Arrange: Create a blank context
   const [ctx, next] = mockContext();
 
+  // Arrange: Use helpers to simulate the state left by upstream middleware
   ctx.setHeaders({ 'x-api-key': '12345' });
   ctx.setCookies({ session: 'abc-xyz' });
-  ctx.setBody({ name: 'test-user' }); // Sets the REQUEST body
+  ctx.setBody({ name: 'test-user' });
 
+  // Act
   await yourMiddleware(ctx, next);
 
-  expect(next).toHaveBeenCalled();
+  // Assert
   expect(ctx.get('x-api-key')).toBe('12345');
   expect(ctx.cookies.get('session')).toBe('abc-xyz');
   expect(ctx.request.body).toEqual({ name: 'test-user' });
 });
-```
-
-### The Mock Next Function (`MockKoaNext`)
-
-The returned `next` function is a `jest.Mock` instance (`jest.fn()`). This allows you to make assertions about whether the middleware chain continued.
-
-```typescript
-expect(next).toHaveBeenCalled();
-expect(next).toHaveBeenCalledTimes(1);
 ```
 
 ### Included Helpers
