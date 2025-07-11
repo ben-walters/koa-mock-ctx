@@ -1,6 +1,6 @@
 {
   "name": "koa-mock-ctx",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "A lightweight utility for testing Koa middleware with Jest.",
   "author": "Ben Walters <awesomeshinythings@proton.me>",
   "license": "MIT",
